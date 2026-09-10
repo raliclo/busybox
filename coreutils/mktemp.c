@@ -120,7 +120,41 @@ int mktemp_main(int argc UNUSED_PARAM, char **argv)
 		if (mkdtemp(chp) == NULL)
 			goto error;
 	} else {
-		if (mkstemp(chp) < 0)
+		/* Accept a suffix after the XXXXXX, as GNU coreutils and BSD do.
+		 *
+		 * mkstemp() requires the template to END with XXXXXX, so
+		 * "name.XXXXXX.swift" fails with EINVAL -- and the resulting
+		 * message, "mktemp: : Invalid argument", names neither the
+		 * template nor the reason. Scripts written against GNU or BSD
+		 * therefore fail here in a way that points nowhere.
+		 *
+		 * mkstemps() is the same call with the suffix length given
+		 * explicitly; it is in glibc, musl and the BSDs. Passing 0 makes
+		 * it behave exactly as mkstemp(), so the previous behaviour is
+		 * unchanged for templates that already end with XXXXXX.
+		 *
+		 * The LAST run of six X's is the placeholder, matching GNU: in
+		 * "a.XXXXXX.b.XXXXXX.c" the second run is substituted and ".c"
+		 * is the suffix.
+		 *
+		 * 接受 XXXXXX 之後的尾綴，與 GNU coreutils 及 BSD 一致。
+		 * mkstemp() 要求模板以 XXXXXX 結尾，因此 "name.XXXXXX.swift" 會以 EINVAL
+		 * 失敗，而它產生的訊息「mktemp: : Invalid argument」既沒有指出模板、也沒有
+		 * 指出原因；照 GNU 或 BSD 寫成的腳本在此失敗，且線索指向不了任何地方。
+		 * mkstemps() 是同一個呼叫，只是明確給出尾綴長度，glibc、musl 與各 BSD 都有。
+		 * 傳 0 時其行為與 mkstemp() 完全相同，故既有模板的行為不變。
+		 * 取「最後一段連續六個 X」作為佔位符，與 GNU 相同。
+		 */
+		char *xrun = NULL;
+		char *scan = chp;
+		size_t suffixlen = 0;
+		while ((scan = strstr(scan, "XXXXXX")) != NULL) {
+			xrun = scan;
+			scan += 6;
+		}
+		if (xrun)
+			suffixlen = strlen(xrun + 6);
+		if (mkstemps(chp, suffixlen) < 0)
 			goto error;
 	}
 	puts(chp);
